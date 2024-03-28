@@ -20,7 +20,10 @@ package query
 
 import (
 	"context"
+	"log"
 
+	"github.com/SkyAPM/go2sky"
+	"github.com/SkyAPM/go2sky/reporter"
 	"github.com/apache/skywalking-banyandb/banyand/measure"
 	"github.com/apache/skywalking-banyandb/banyand/metadata"
 	"github.com/apache/skywalking-banyandb/banyand/queue"
@@ -51,5 +54,14 @@ func NewService(_ context.Context, streamService stream.Service, measureService 
 		measureService: measureService,
 		queryService:   svc,
 	}
+	// tracer for self-observability
+	r, err := reporter.NewGRPCReporter("localhost:11800")
+	if err != nil {
+		log.Fatalf("new reporter error %v \n", err)
+	}
+	// defer r.Close()
+	tracer, err := go2sky.NewTracer("banyandb", go2sky.WithReporter(r))
+	go2sky.SetGlobalTracer(tracer)
+
 	return svc, nil
 }

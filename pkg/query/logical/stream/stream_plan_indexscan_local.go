@@ -24,6 +24,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/SkyAPM/go2sky"
 	commonv1 "github.com/apache/skywalking-banyandb/api/proto/banyandb/common/v1"
 	modelv1 "github.com/apache/skywalking-banyandb/api/proto/banyandb/model/v1"
 	streamv1 "github.com/apache/skywalking-banyandb/api/proto/banyandb/stream/v1"
@@ -63,6 +64,12 @@ func (i *localIndexScan) Sort(order *logical.OrderBy) {
 }
 
 func (i *localIndexScan) Execute(ctx context.Context) (elements []*streamv1.Element, err error) {
+	tracer := go2sky.GetGlobalTracer()
+	span, subCtx, err := tracer.CreateLocalSpan(ctx)
+	span.SetOperationName("localIndexScan")
+	defer span.End()
+
+	time.Sleep(2*time.Second)
 	var orderBy *pbv1.OrderBy
 	if i.order != nil {
 		orderBy = &pbv1.OrderBy{
@@ -70,7 +77,7 @@ func (i *localIndexScan) Execute(ctx context.Context) (elements []*streamv1.Elem
 			Sort:  i.order.Sort,
 		}
 	}
-	ec := executor.FromStreamExecutionContext(ctx)
+	ec := executor.FromStreamExecutionContext(subCtx)
 
 	if i.order != nil && i.order.Index != nil {
 		ssr, err := ec.Sort(ctx, pbv1.StreamSortOptions{

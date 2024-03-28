@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/SkyAPM/go2sky"
 	commonv1 "github.com/apache/skywalking-banyandb/api/proto/banyandb/common/v1"
 	modelv1 "github.com/apache/skywalking-banyandb/api/proto/banyandb/model/v1"
 	streamv1 "github.com/apache/skywalking-banyandb/api/proto/banyandb/stream/v1"
@@ -148,7 +149,12 @@ func newTagFilter(s logical.Schema, parent logical.Plan, tagFilter logical.TagFi
 }
 
 func (t *tagFilterPlan) Execute(ec context.Context) ([]*streamv1.Element, error) {
-	entities, err := t.parent.(executor.StreamExecutable).Execute(ec)
+	tracer := go2sky.GetGlobalTracer()
+	span, ctx, _ := tracer.CreateLocalSpan(ec)
+	defer span.End()
+	span.SetOperationName("tagFilter")
+	time.Sleep(time.Second)
+	entities, err := t.parent.(executor.StreamExecutable).Execute(ctx)
 	if err != nil {
 		return nil, err
 	}

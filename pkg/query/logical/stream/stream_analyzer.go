@@ -20,7 +20,9 @@ package stream
 import (
 	"context"
 	"fmt"
+	"time"
 
+	"github.com/SkyAPM/go2sky"
 	commonv1 "github.com/apache/skywalking-banyandb/api/proto/banyandb/common/v1"
 	databasev1 "github.com/apache/skywalking-banyandb/api/proto/banyandb/database/v1"
 	streamv1 "github.com/apache/skywalking-banyandb/api/proto/banyandb/stream/v1"
@@ -108,11 +110,17 @@ type limit struct {
 }
 
 func (l *limit) Execute(ec context.Context) ([]*streamv1.Element, error) {
-	entities, err := l.Parent.Input.(executor.StreamExecutable).Execute(ec)
+	tracer := go2sky.GetGlobalTracer()
+	span, ctx, _ := tracer.CreateLocalSpan(ec)
+	span.SetOperationName("limit")
+	time.Sleep(time.Second)
+
+	entities, err := l.Parent.Input.(executor.StreamExecutable).Execute(ctx)
 	if err != nil {
 		return nil, err
 	}
 
+	span.End()
 	if len(entities) > int(l.LimitNum) {
 		return entities[:l.LimitNum], nil
 	}
@@ -161,7 +169,13 @@ type offset struct {
 }
 
 func (l *offset) Execute(ec context.Context) ([]*streamv1.Element, error) {
-	elements, err := l.Parent.Input.(executor.StreamExecutable).Execute(ec)
+	tracer := go2sky.GetGlobalTracer()
+	span, ctx, err := tracer.CreateLocalSpan(ec)
+	span.SetOperationName("offset")
+	defer span.End()
+
+	time.Sleep(time.Second)
+	elements, err := l.Parent.Input.(executor.StreamExecutable).Execute(ctx)
 	if err != nil {
 		return nil, err
 	}

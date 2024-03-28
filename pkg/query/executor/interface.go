@@ -38,7 +38,13 @@ type StreamExecutionContext interface {
 // StreamExecutionContextKey is the key of stream execution context in context.Context.
 type StreamExecutionContextKey struct{}
 
-var streamExecutionContextKeyInstance = StreamExecutionContextKey{}
+// StreamObservabilityContextKey is the key of stream observability context in context.Context.
+type StreamObservabilityContextKey struct{}
+
+var (
+	streamExecutionContextKeyInstance     = StreamExecutionContextKey{}
+	StreamObservabilityContextKeyInstance = StreamExecutionContextKey{}
+)
 
 // WithStreamExecutionContext returns a new context with stream execution context.
 func WithStreamExecutionContext(ctx context.Context, ec StreamExecutionContext) context.Context {
