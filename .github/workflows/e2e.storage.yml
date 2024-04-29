@@ -17,6 +17,10 @@
 name: OAP-E2E
 
 on:
+  push:
+    branches:
+      - main
+      - test
   pull_request:
   schedule:
     - cron: '0 18 * * *'
