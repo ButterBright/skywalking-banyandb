@@ -612,6 +612,9 @@ func (bc *blockCursor) searchData(tmpBlock *block) bool {
 		bc.timestamps = append(bc.timestamps, tmpBlock.timestamps[idx])
 		bc.elementIDs = append(bc.elementIDs, tmpBlock.elementIDs[idx])
 	}
+	if len(bc.timestamps) == 0 {
+		return false
+	}
 	for i, projection := range bc.bm.tagProjection {
 		tf := tagFamily{
 			name: projection.Family,
@@ -636,7 +639,7 @@ func (bc *blockCursor) searchData(tmpBlock *block) bool {
 		}
 		bc.tagFamilies = append(bc.tagFamilies, tf)
 	}
-	return len(bc.timestamps) != 0
+	return false
 }
 
 var blockCursorPool sync.Pool
