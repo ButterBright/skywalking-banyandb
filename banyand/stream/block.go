@@ -569,7 +569,7 @@ func (bc *blockCursor) loadData(tmpBlock *block) bool {
 			t := tag{
 				name: name,
 			}
-			if tmpBlock.tagFamilies[i].tags[blockIndex].name == name {
+			if len(tmpBlock.tagFamilies[i].tags) > 0 && tmpBlock.tagFamilies[i].tags[blockIndex].name == name {
 				t.valueType = tmpBlock.tagFamilies[i].tags[blockIndex].valueType
 				if len(tmpBlock.tagFamilies[i].tags[blockIndex].values) != len(tmpBlock.timestamps) {
 					logger.Panicf("unexpected number of values for tags %q: got %d; want %d",
@@ -624,7 +624,7 @@ func (bc *blockCursor) searchData(tmpBlock *block) bool {
 			t := tag{
 				name: name,
 			}
-			if tmpBlock.tagFamilies[i].tags[blockIndex].name == name {
+			if len(tmpBlock.tagFamilies[i].tags) > 0 && tmpBlock.tagFamilies[i].tags[blockIndex].name == name {
 				t.valueType = tmpBlock.tagFamilies[i].tags[blockIndex].valueType
 				if len(tmpBlock.tagFamilies[i].tags[blockIndex].values) != len(tmpBlock.timestamps) {
 					logger.Panicf("unexpected number of values for tags %q: got %d; want %d",
