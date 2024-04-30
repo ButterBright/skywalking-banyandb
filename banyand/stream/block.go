@@ -639,7 +639,7 @@ func (bc *blockCursor) searchData(tmpBlock *block) bool {
 		}
 		bc.tagFamilies = append(bc.tagFamilies, tf)
 	}
-	return false
+	return true
 }
 
 var blockCursorPool sync.Pool
