@@ -207,9 +207,9 @@ func (bw *blockWriter) MustWriteElements(sid common.SeriesID, timestamps []int64
 	}
 
 	b := generateBlock()
-	defer releaseBlock(b)
 	b.mustInitFromElements(timestamps, elementIDs, tagFamilies)
 	bw.mustWriteBlock(sid, b)
+	releaseBlock(b)
 }
 
 func (bw *blockWriter) mustWriteBlock(sid common.SeriesID, b *block) {
