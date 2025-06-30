@@ -202,6 +202,12 @@ func (pi *partIter) readPrimaryBlock(bms []blockMetadata, mr *primaryBlockMetada
 
 func (pi *partIter) findBlock() bool {
 	bhs := pi.bms
+	var tfs *tagFamilyFilters
+	defer func() {
+		if tfs != nil {
+			releaseTagFamilyFilters(tfs)
+		}
+	}()
 	for len(bhs) > 0 {
 		sid := pi.curBlock.seriesID
 		if bhs[0].seriesID < sid {
@@ -235,7 +241,11 @@ func (pi *partIter) findBlock() bool {
 		}
 
 		if pi.blockFilter != nil && pi.blockFilter != logicalstream.ENode {
-			tfs := generateTagFamilyFilters()
+			if tfs == nil {
+				tfs = generateTagFamilyFilters()
+			} else {
+				tfs.reset()
+			}
 			tfs.unmarshal(bm.tagFamilies, pi.p.tagFamilyMetadata, pi.p.tagFamilyFilter)
 			shouldSkip, err := pi.blockFilter.ShouldSkip(tfs)
 			if err != nil {
@@ -243,13 +253,11 @@ func (pi *partIter) findBlock() bool {
 				return false
 			}
 			if shouldSkip {
-				releaseTagFamilyFilters(tfs)
 				if !pi.nextSeriesID() {
 					return false
 				}
 				continue
 			}
-			releaseTagFamilyFilters(tfs)
 		}
 
 		pi.curBlock = bm
