@@ -29,18 +29,18 @@ import (
 )
 
 type partMetadata struct {
-	CompressedSizeBytes   uint64 `json:"compressedSizeBytes"`
-	UncompressedSizeBytes uint64 `json:"uncompressedSizeBytes"`
-	TotalCount            uint64 `json:"totalCount"`
-	BlocksCount           uint64 `json:"blocksCount"`
-	MinTimestamp          int64  `json:"minTimestamp"`
-	MaxTimestamp          int64  `json:"maxTimestamp"`
-	ID                    uint64 `json:"-"`
+	CompressedSizeBytes       uint64 `json:"compressedSizeBytes"`
+	UncompressedSpanSizeBytes uint64 `json:"uncompressedSpanSizeBytes"`
+	TotalCount                uint64 `json:"totalCount"`
+	BlocksCount               uint64 `json:"blocksCount"`
+	MinTimestamp              int64  `json:"minTimestamp"`
+	MaxTimestamp              int64  `json:"maxTimestamp"`
+	ID                        uint64 `json:"-"`
 }
 
 func (pm *partMetadata) reset() {
 	pm.CompressedSizeBytes = 0
-	pm.UncompressedSizeBytes = 0
+	pm.UncompressedSpanSizeBytes = 0
 	pm.TotalCount = 0
 	pm.BlocksCount = 0
 	pm.MinTimestamp = 0

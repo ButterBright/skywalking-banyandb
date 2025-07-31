@@ -87,72 +87,17 @@ func (tm *tagMetadata) unmarshal(src []byte) ([]byte, error) {
 	return src, nil
 }
 
-type tagFamilyMetadata struct {
-	tagMetadata []tagMetadata
-}
-
-func (tfm *tagFamilyMetadata) reset() {
-	tms := tfm.tagMetadata
-	for i := range tms {
-		tms[i].reset()
-	}
-	tfm.tagMetadata = tms[:0]
-}
-
-func (tfm *tagFamilyMetadata) copyFrom(src *tagFamilyMetadata) {
-	tfm.reset()
-	tms := tfm.resizeTagMetadata(len(src.tagMetadata))
-	for i := range src.tagMetadata {
-		tms[i].copyFrom(&src.tagMetadata[i])
-	}
-}
-
-func (tfm *tagFamilyMetadata) resizeTagMetadata(tagMetadataLen int) []tagMetadata {
-	tms := tfm.tagMetadata
-	if n := tagMetadataLen - cap(tms); n > 0 {
-		tms = append(tms[:cap(tms)], make([]tagMetadata, n)...)
-	}
-	tms = tms[:tagMetadataLen]
-	tfm.tagMetadata = tms
-	return tms
-}
-
-func (tfm *tagFamilyMetadata) marshal(dst []byte) []byte {
-	tms := tfm.tagMetadata
-	dst = encoding.VarUint64ToBytes(dst, uint64(len(tms)))
-	for i := range tms {
-		dst = tms[i].marshal(dst)
-	}
-	return dst
-}
-
-func (tfm *tagFamilyMetadata) unmarshal(src []byte) error {
-	src, tagMetadataLen := encoding.BytesToVarUint64(src)
-	if tagMetadataLen < 1 {
-		return nil
-	}
-	tms := tfm.resizeTagMetadata(int(tagMetadataLen))
-	var err error
-	for i := range tms {
-		src, err = tms[i].unmarshal(src)
-		if err != nil {
-			return fmt.Errorf("cannot unmarshal tagMetadata %d: %w", i, err)
-		}
-	}
-	return nil
-}
-
-func generateTagFamilyMetadata() *tagFamilyMetadata {
-	v := tagFamilyMetadataPool.Get()
+func generateTagMetadata() *tagMetadata {
+	v := tagMetadataPool.Get()
 	if v == nil {
-		return &tagFamilyMetadata{}
+		v = &tagMetadata{}
 	}
 	return v
 }
 
-func releaseTagFamilyMetadata(tfm *tagFamilyMetadata) {
-	tfm.reset()
-	tagFamilyMetadataPool.Put(tfm)
+func releaseTagMetadata(tm *tagMetadata) {
+	tm.reset()
+	tagMetadataPool.Put(tm)
 }
 
-var tagFamilyMetadataPool = pool.Register[*tagFamilyMetadata]("stream-tagFamilyMetadata")
+var tagMetadataPool = pool.Register[*tagMetadata]("trace-tagMetadata")

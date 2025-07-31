@@ -348,41 +348,6 @@ func mergeBlocks(closeCh <-chan struct{}, bw *blockWriter, br *blockReader) (*pa
 }
 
 func mergeTwoBlocks(target, left, right *blockPointer) {
-	appendIfEmpty := func(ib1, ib2 *blockPointer) bool {
-		if ib1.idx >= len(ib1.timestamps) {
-			target.appendAll(ib2)
-			return true
-		}
-		return false
-	}
-
-	defer target.updateMetadata()
-
-	if left.bm.timestamps.max < right.bm.timestamps.min {
-		target.appendAll(left)
-		target.appendAll(right)
-		return
-	}
-	if right.bm.timestamps.max < left.bm.timestamps.min {
-		target.appendAll(right)
-		target.appendAll(left)
-		return
-	}
-	if appendIfEmpty(left, right) || appendIfEmpty(right, left) {
-		return
-	}
-
-	for {
-		i := left.idx
-		ts2 := right.timestamps[right.idx]
-		for i < len(left.timestamps) && left.timestamps[i] <= ts2 {
-			i++
-		}
-		target.append(left, i)
-		left.idx = i
-		if appendIfEmpty(left, right) {
-			return
-		}
-		left, right = right, left
-	}
+	target.appendAll(left)
+	target.appendAll(right)
 }

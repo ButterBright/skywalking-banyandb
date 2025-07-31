@@ -211,9 +211,6 @@ func initTSTable(fileSystem fs.FileSystem, rootPath string, p common.Position,
 	var needToDelete []string
 	for i := range ee {
 		if ee[i].IsDir() {
-			if ee[i].Name() == elementIndexFilename {
-				continue
-			}
 			p, err := parseEpoch(ee[i].Name())
 			if err != nil {
 				l.Info().Err(err).Msg("cannot parse part file name. skip and delete it")
@@ -306,13 +303,13 @@ func (tst *tsTable) mustAddMemPart(mp *memPart) {
 	tst.incTotalBatchIntroLatency(time.Since(startTime).Seconds())
 }
 
-func (tst *tsTable) mustAddElements(es *elements) {
-	if len(es.seriesIDs) == 0 {
+func (tst *tsTable) mustAddTraces(ts *traces) {
+	if len(ts.traceIDs) == 0 {
 		return
 	}
 
 	mp := generateMemPart()
-	mp.mustInitFromElements(es)
+	mp.mustInitFromTraces(ts)
 	tst.mustAddMemPart(mp)
 }
 
