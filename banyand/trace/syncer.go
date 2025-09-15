@@ -255,6 +255,12 @@ func (tst *tsTable) syncStreamingPartsToNodes(ctx context.Context, nodes []strin
 	for _, node := range nodes {
 		// Prepare all streaming parts data
 		streamingParts := make([]queue.StreamingPartData, 0)
+		// Add sidx streaming parts
+		for name, sidxParts := range sidxPartsToSync {
+			sidxStreamingParts, sidxReleaseFuncs := tst.sidxMap[name].StreamingParts(sidxParts, tst.group, uint32(tst.shardID), name)
+			streamingParts = append(streamingParts, sidxStreamingParts...)
+			*releaseFuncs = append(*releaseFuncs, sidxReleaseFuncs...)
+		}
 		// Create streaming parts from core trace parts.
 		for _, part := range partsToSync {
 			files, release := createPartFileReaders(part)
@@ -273,12 +279,6 @@ func (tst *tsTable) syncStreamingPartsToNodes(ctx context.Context, nodes []strin
 				MaxTimestamp:          part.partMetadata.MaxTimestamp,
 				PartType:              PartTypeCore,
 			})
-		}
-		// Add sidx streaming parts
-		for name, sidxParts := range sidxPartsToSync {
-			sidxStreamingParts, sidxReleaseFuncs := tst.sidxMap[name].StreamingParts(sidxParts, tst.group, uint32(tst.shardID), name)
-			streamingParts = append(streamingParts, sidxStreamingParts...)
-			*releaseFuncs = append(*releaseFuncs, sidxReleaseFuncs...)
 		}
 		if err := tst.syncStreamingPartsToNode(ctx, node, streamingParts); err != nil {
 			return err

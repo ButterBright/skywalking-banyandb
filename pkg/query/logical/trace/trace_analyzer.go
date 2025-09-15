@@ -23,7 +23,10 @@ import (
 
 	commonv1 "github.com/apache/skywalking-banyandb/api/proto/banyandb/common/v1"
 	tracev1 "github.com/apache/skywalking-banyandb/api/proto/banyandb/trace/v1"
+	"github.com/apache/skywalking-banyandb/pkg/convert"
 	"github.com/apache/skywalking-banyandb/pkg/iter"
+	"github.com/apache/skywalking-banyandb/pkg/iter/sort"
+	pbv1 "github.com/apache/skywalking-banyandb/pkg/pb/v1"
 	"github.com/apache/skywalking-banyandb/pkg/query/executor"
 	"github.com/apache/skywalking-banyandb/pkg/query/logical"
 	"github.com/apache/skywalking-banyandb/pkg/query/model"
@@ -114,109 +117,10 @@ func DistributedAnalyze(criteria *tracev1.QueryRequest, ss []logical.Schema) (lo
 	return plan.Analyze(s)
 }
 
-var (
-	_ logical.Plan             = (*traceLimit)(nil)
-	_ logical.UnresolvedPlan   = (*traceLimit)(nil)
-	_ executor.TraceExecutable = (*traceLimit)(nil)
-)
-
 // Parent refers to a parent node in the execution tree(plan).
 type Parent struct {
 	UnresolvedInput logical.UnresolvedPlan
 	Input           logical.Plan
-}
-
-type traceLimit struct {
-	*Parent
-	limitNum  uint32
-	offsetNum uint32
-}
-
-func (l *traceLimit) Close() {
-	l.Parent.Input.(executor.TraceExecutable).Close()
-}
-
-func (l *traceLimit) Execute(ctx context.Context) (iter.Iterator[model.TraceResult], error) {
-	// Apply offset and limit to trace results (not spans within each trace)
-	resultIterator, err := l.Parent.Input.(executor.TraceExecutable).Execute(ctx)
-	if err != nil {
-		return iter.Empty[model.TraceResult](), err
-	}
-
-	// Return a lazy iterator that handles offset and limit at the result level
-	return &traceLimitIterator{
-		sourceIterator: resultIterator,
-		offset:         int(l.offsetNum),
-		limit:          int(l.limitNum),
-		currentIndex:   0,
-		returned:       0,
-	}, nil
-}
-
-// traceLimitIterator implements iter.Iterator[model.TraceResult] by applying
-// offset and limit to the number of trace results (not spans within results).
-type traceLimitIterator struct {
-	sourceIterator iter.Iterator[model.TraceResult]
-	offset         int
-	limit          int
-	currentIndex   int
-	returned       int
-}
-
-func (tli *traceLimitIterator) Next() (model.TraceResult, bool) {
-	// If we've already returned the maximum number of results, stop
-	if tli.limit > 0 && tli.returned >= tli.limit {
-		return model.TraceResult{}, false
-	}
-
-	for {
-		result, hasNext := tli.sourceIterator.Next()
-		if !hasNext {
-			return model.TraceResult{}, false
-		}
-
-		// Skip results until we reach the offset
-		if tli.currentIndex < tli.offset {
-			tli.currentIndex++
-			continue
-		}
-
-		// We're past the offset, return this result and increment counters
-		tli.currentIndex++
-		tli.returned++
-		return result, true
-	}
-}
-
-func (l *traceLimit) Analyze(s logical.Schema) (logical.Plan, error) {
-	var err error
-	l.Input, err = l.UnresolvedInput.Analyze(s)
-	if err != nil {
-		return nil, err
-	}
-	return l, nil
-}
-
-func (l *traceLimit) Schema() logical.Schema {
-	return l.Input.Schema()
-}
-
-func (l *traceLimit) String() string {
-	return fmt.Sprintf("%s TraceLimit: %d", l.Input.String(), l.limitNum)
-}
-
-func (l *traceLimit) Children() []logical.Plan {
-	return []logical.Plan{l.Input}
-}
-
-func newTraceLimit(input logical.UnresolvedPlan, offset, num uint32) logical.UnresolvedPlan {
-	return &traceLimit{
-		Parent: &Parent{
-			UnresolvedInput: input,
-		},
-		offsetNum: offset,
-		limitNum:  num,
-	}
 }
 
 func parseTraceTags(criteria *tracev1.QueryRequest, metadata *commonv1.Metadata,
@@ -251,55 +155,287 @@ func convertStringProjectionToTags(tagNames []string) [][]*logical.Tag {
 	return [][]*logical.Tag{tags}
 }
 
-// Placeholder implementations for distributed query components.
-var _ logical.UnresolvedPlan = (*unresolvedTraceMerger)(nil)
+// traceLimit implements limit for local trace queries.
+var (
+	_ logical.Plan             = (*traceLimit)(nil)
+	_ logical.UnresolvedPlan   = (*traceLimit)(nil)
+	_ executor.TraceExecutable = (*traceLimit)(nil)
+)
 
-type unresolvedTraceMerger struct {
-	criteria      *tracev1.QueryRequest
-	metadata      []*commonv1.Metadata
-	ecc           []executor.TraceExecutionContext
-	tagProjection [][]*logical.Tag
+type traceLimit struct {
+	*Parent
+	limitNum  uint32
+	offsetNum uint32
 }
 
-func (utm *unresolvedTraceMerger) Analyze(_ logical.Schema) (logical.Plan, error) {
-	// TODO: Implement trace merger logic
-	return nil, fmt.Errorf("trace merger not implemented yet")
-}
-
-func newUnresolvedTraceDistributed(criteria *tracev1.QueryRequest) logical.UnresolvedPlan {
-	// TODO: Implement distributed trace query
-	return &unresolvedTraceDistributed{criteria: criteria}
-}
-
-var _ logical.UnresolvedPlan = (*unresolvedTraceDistributed)(nil)
-
-type unresolvedTraceDistributed struct {
-	criteria *tracev1.QueryRequest
-}
-
-func (utd *unresolvedTraceDistributed) Analyze(_ logical.Schema) (logical.Plan, error) {
-	// TODO: Implement distributed trace analysis
-	return nil, fmt.Errorf("distributed trace query not implemented yet")
-}
-
-func newDistributedTraceLimit(input logical.UnresolvedPlan, offset, num uint32) logical.UnresolvedPlan {
-	// TODO: Implement distributed trace limit
-	return &distributedTraceLimit{
-		input:     input,
+func newTraceLimit(input logical.UnresolvedPlan, offset, num uint32) logical.UnresolvedPlan {
+	return &traceLimit{
+		Parent: &Parent{
+			UnresolvedInput: input,
+		},
 		offsetNum: offset,
 		limitNum:  num,
 	}
 }
 
-var _ logical.UnresolvedPlan = (*distributedTraceLimit)(nil)
+func (l *traceLimit) Analyze(s logical.Schema) (logical.Plan, error) {
+	var err error
+	l.Input, err = l.UnresolvedInput.Analyze(s)
+	if err != nil {
+		return nil, err
+	}
+	return l, nil
+}
+
+func (l *traceLimit) Close() {
+	l.Parent.Input.(executor.TraceExecutable).Close()
+}
+
+func (l *traceLimit) Execute(ctx context.Context) (iter.Iterator[model.TraceResult], error) {
+	// Apply offset and limit to trace results (not spans within each trace)
+	resultIterator, err := l.Parent.Input.(executor.TraceExecutable).Execute(ctx)
+	if err != nil {
+		return iter.Empty[model.TraceResult](), err
+	}
+
+	// Return a lazy iterator that handles offset and limit at the result level
+	return &traceLimitIterator{
+		sourceIterator: resultIterator,
+		offset:         int(l.offsetNum),
+		limit:          int(l.limitNum),
+		currentIndex:   0,
+		returned:       0,
+	}, nil
+}
+
+func (l *traceLimit) Schema() logical.Schema {
+	return l.Input.Schema()
+}
+
+func (l *traceLimit) String() string {
+	return fmt.Sprintf("%s Trace Limit: %d, %d", l.Input.String(), l.offsetNum, l.limitNum)
+}
+
+func (l *traceLimit) Children() []logical.Plan {
+	return []logical.Plan{l.Input}
+}
+
+// distributedTraceLimit implements distributed limit for trace queries.
+var _ executor.TraceExecutable = (*distributedTraceLimit)(nil)
 
 type distributedTraceLimit struct {
-	input     logical.UnresolvedPlan
+	*Parent
 	offsetNum uint32
 	limitNum  uint32
 }
 
-func (dtl *distributedTraceLimit) Analyze(_ logical.Schema) (logical.Plan, error) {
-	// TODO: Implement distributed trace limit analysis
-	return nil, fmt.Errorf("distributed trace limit not implemented yet")
+func newDistributedTraceLimit(input logical.UnresolvedPlan, offset, num uint32) logical.UnresolvedPlan {
+	return &distributedTraceLimit{
+		Parent: &Parent{
+			UnresolvedInput: input,
+		},
+		offsetNum: offset,
+		limitNum:  num,
+	}
+}
+
+func (dtl *distributedTraceLimit) Analyze(s logical.Schema) (logical.Plan, error) {
+	var err error
+	dtl.Input, err = dtl.UnresolvedInput.Analyze(s)
+	if err != nil {
+		return nil, err
+	}
+	return dtl, nil
+}
+
+func (dtl *distributedTraceLimit) Close() {
+	dtl.Parent.Input.(executor.TraceExecutable).Close()
+}
+
+func (dtl *distributedTraceLimit) Execute(ctx context.Context) (iter.Iterator[model.TraceResult], error) {
+	resultIterator, err := dtl.Parent.Input.(executor.TraceExecutable).Execute(ctx)
+	if err != nil {
+		return iter.Empty[model.TraceResult](), err
+	}
+
+	return &traceLimitIterator{
+		sourceIterator: resultIterator,
+		offset:         int(dtl.offsetNum),
+		limit:          int(dtl.limitNum),
+		currentIndex:   0,
+		returned:       0,
+	}, nil
+}
+
+func (dtl *distributedTraceLimit) Schema() logical.Schema {
+	return dtl.Input.Schema()
+}
+
+func (dtl *distributedTraceLimit) String() string {
+	return fmt.Sprintf("%s Distributed Trace Limit: %d, %d", dtl.Input.String(), dtl.offsetNum, dtl.limitNum)
+}
+
+func (dtl *distributedTraceLimit) Children() []logical.Plan {
+	return []logical.Plan{dtl.Input}
+}
+
+// comparableTraceResult implements sort.Comparable for trace results.
+var _ sort.Comparable = (*comparableTraceResult)(nil)
+
+type comparableTraceResult struct {
+	result    model.TraceResult
+	sortField []byte
+}
+
+func newComparableTraceResult(tr model.TraceResult, sortByTime bool, sortTagSpec logical.TagSpec) (*comparableTraceResult, error) {
+	var sortField []byte
+	if sortByTime {
+		// For trace, we might need to extract timestamp from span data
+		// For now, use a simple hash of trace ID
+		sortField = convert.StringToBytes(tr.TID)
+	} else if len(tr.Tags) > 0 && sortTagSpec.TagIdx < len(tr.Tags) {
+		// Extract sort field from tags
+		tag := tr.Tags[sortTagSpec.TagIdx]
+		if len(tag.Values) > 0 {
+			var err error
+			sortField, err = pbv1.MarshalTagValue(tag.Values[0])
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	return &comparableTraceResult{
+		result:    tr,
+		sortField: sortField,
+	}, nil
+}
+
+func (ctr *comparableTraceResult) SortedField() []byte {
+	return ctr.sortField
+}
+
+// sortableTraceResults implements sort.Iterator for trace results.
+var _ sort.Iterator[*comparableTraceResult] = (*sortableTraceResults)(nil)
+
+type sortableTraceResults struct {
+	cur          *comparableTraceResult
+	traceResults []model.TraceResult
+	sortTagSpec  logical.TagSpec
+	index        int
+	isSortByTime bool
+}
+
+func newSortableTraceResults(traceResults []model.TraceResult, isSortByTime bool, sortTagSpec logical.TagSpec) *sortableTraceResults {
+	return &sortableTraceResults{
+		traceResults: traceResults,
+		isSortByTime: isSortByTime,
+		sortTagSpec:  sortTagSpec,
+	}
+}
+
+func (*sortableTraceResults) Close() error {
+	return nil
+}
+
+func (str *sortableTraceResults) Next() bool {
+	return str.iter(func(tr model.TraceResult) (*comparableTraceResult, error) {
+		return newComparableTraceResult(tr, str.isSortByTime, str.sortTagSpec)
+	})
+}
+
+func (str *sortableTraceResults) Val() *comparableTraceResult {
+	return str.cur
+}
+
+func (str *sortableTraceResults) iter(fn func(model.TraceResult) (*comparableTraceResult, error)) bool {
+	if str.index >= len(str.traceResults) {
+		return false
+	}
+	cur, err := fn(str.traceResults[str.index])
+	str.index++
+	if err != nil {
+		return str.iter(fn)
+	}
+	str.cur = cur
+	return str.index <= len(str.traceResults)
+}
+
+// sortedTraceIterator implements iter.Iterator[model.TraceResult] with deduplication.
+type sortedTraceIterator struct {
+	sort.Iterator[*comparableTraceResult]
+	seen map[string]bool
+}
+
+func (sti *sortedTraceIterator) Next() (model.TraceResult, bool) {
+	for sti.Iterator.Next() {
+		result := sti.Iterator.Val().result
+		if !sti.seen[result.TID] {
+			sti.seen[result.TID] = true
+			return result, true
+		}
+	}
+	return model.TraceResult{}, false
+}
+
+// sortableTraceResultsFromIterator adapts a TraceResult iterator to sort.Iterator.
+type sortableTraceResultsFromIterator struct {
+	resultIter  iter.Iterator[model.TraceResult]
+	current     *comparableTraceResult
+	sortTagSpec logical.TagSpec
+	sortByTime  bool
+}
+
+func (stri *sortableTraceResultsFromIterator) Next() bool {
+	result, hasNext := stri.resultIter.Next()
+	if !hasNext {
+		return false
+	}
+
+	var err error
+	stri.current, err = newComparableTraceResult(result, stri.sortByTime, stri.sortTagSpec)
+	return err == nil
+}
+
+func (stri *sortableTraceResultsFromIterator) Val() *comparableTraceResult {
+	return stri.current
+}
+
+func (stri *sortableTraceResultsFromIterator) Close() error {
+	return nil
+}
+
+// traceLimitIterator implements iter.Iterator[model.TraceResult] by applying
+// offset and limit to the number of trace results (not spans within results).
+type traceLimitIterator struct {
+	sourceIterator iter.Iterator[model.TraceResult]
+	offset         int
+	limit          int
+	currentIndex   int
+	returned       int
+}
+
+func (tli *traceLimitIterator) Next() (model.TraceResult, bool) {
+	// Skip until we reach the offset
+	for tli.currentIndex < tli.offset {
+		if _, hasNext := tli.sourceIterator.Next(); !hasNext {
+			return model.TraceResult{}, false
+		}
+		tli.currentIndex++
+	}
+
+	// Check if we've already returned enough results
+	if tli.returned >= tli.limit {
+		return model.TraceResult{}, false
+	}
+
+	// Get the next result
+	result, hasNext := tli.sourceIterator.Next()
+	if !hasNext {
+		return model.TraceResult{}, false
+	}
+
+	tli.currentIndex++
+	tli.returned++
+	return result, true
 }
