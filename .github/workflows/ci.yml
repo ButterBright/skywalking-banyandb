@@ -21,6 +21,7 @@ on:
   push:
     branches:
       - main
+      - test
 
 env:
   SEGMENT_DOWNLOAD_TIMEOUT_MINS: 5
