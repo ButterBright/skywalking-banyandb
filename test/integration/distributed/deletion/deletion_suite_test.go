@@ -110,10 +110,12 @@ var _ = SynchronizedBeforeSuite(func() []byte {
 	dataNode1Path = parts[2]
 	liaisonNodePath = parts[3]
 
-	var connErr error
-	connection, connErr = grpchelper.Conn(liaisonGrpcAddr, 10*time.Second,
-		grpc.WithTransportCredentials(insecure.NewCredentials()))
-	Expect(connErr).NotTo(HaveOccurred())
+	Eventually(func(innerG Gomega) {
+		var connErr error
+		connection, connErr = grpchelper.Conn(liaisonGrpcAddr, 10*time.Second,
+			grpc.WithTransportCredentials(insecure.NewCredentials()))
+		innerG.Expect(connErr).NotTo(HaveOccurred())
+	}, flags.EventuallyTimeout).Should(Succeed())
 
 	groupClient = databasev1.NewGroupRegistryServiceClient(connection)
 })
@@ -308,5 +310,121 @@ var _ = Describe("GroupDeletion", func() {
 			}
 			return queryResp.GetTask().GetCurrentPhase()
 		}, flags.EventuallyTimeout, 100*time.Millisecond).Should(Equal(databasev1.GroupDeletionTask_PHASE_COMPLETED))
+
+		By("Verifying updated_at is set")
+		queryResp, queryErr := groupClient.Query(context.TODO(), &databasev1.GroupRegistryServiceQueryRequest{
+			Group: groupName,
+		})
+		Expect(queryErr).ShouldNot(HaveOccurred())
+		Expect(queryResp.GetTask().GetUpdatedAt()).ShouldNot(BeNil())
+	})
+
+	It("can re-delete a group after recreation", func() {
+		const groupName = "dist-recreate-deletion-group"
+		dn0StreamDir := filepath.Join(dataNode0Path, "stream", "data", groupName)
+		dn1StreamDir := filepath.Join(dataNode1Path, "stream", "data", groupName)
+		liaisonStreamDir := filepath.Join(liaisonNodePath, "stream", "data", groupName)
+		createGroup := func() {
+			_, createErr := groupClient.Create(context.TODO(), &databasev1.GroupRegistryServiceCreateRequest{
+				Group: &commonv1.Group{
+					Metadata: &commonv1.Metadata{Name: groupName},
+					Catalog:  commonv1.Catalog_CATALOG_STREAM,
+					ResourceOpts: &commonv1.ResourceOpts{
+						ShardNum: 1,
+						SegmentInterval: &commonv1.IntervalRule{
+							Unit: commonv1.IntervalRule_UNIT_DAY,
+							Num:  1,
+						},
+						Ttl: &commonv1.IntervalRule{
+							Unit: commonv1.IntervalRule_UNIT_DAY,
+							Num:  7,
+						},
+					},
+				},
+			})
+			Expect(createErr).ShouldNot(HaveOccurred())
+		}
+
+		By("Creating the group for the first time")
+		createGroup()
+		Eventually(func() bool {
+			_, statErr0 := os.Stat(dn0StreamDir)
+			_, statErr1 := os.Stat(dn1StreamDir)
+			_, statErrL := os.Stat(liaisonStreamDir)
+			return statErr0 == nil && statErr1 == nil && statErrL == nil
+		}, flags.EventuallyTimeout).Should(BeTrue())
+
+		By("Deleting the group with force=true")
+		_, err := groupClient.Delete(context.TODO(), &databasev1.GroupRegistryServiceDeleteRequest{
+			Group: groupName,
+			Force: true,
+		})
+		Expect(err).ShouldNot(HaveOccurred())
+
+		By("Waiting for deletion task to complete")
+		Eventually(func() databasev1.GroupDeletionTask_Phase {
+			queryResp, queryErr := groupClient.Query(context.TODO(), &databasev1.GroupRegistryServiceQueryRequest{
+				Group: groupName,
+			})
+			if queryErr != nil {
+				return databasev1.GroupDeletionTask_PHASE_UNSPECIFIED
+			}
+			return queryResp.GetTask().GetCurrentPhase()
+		}, flags.EventuallyTimeout, 100*time.Millisecond).Should(Equal(databasev1.GroupDeletionTask_PHASE_COMPLETED))
+
+		By("Verifying the group is removed")
+		Eventually(func() codes.Code {
+			_, getErr := groupClient.Get(context.TODO(), &databasev1.GroupRegistryServiceGetRequest{Group: groupName})
+			if getErr == nil {
+				return codes.OK
+			}
+			st, _ := status.FromError(getErr)
+			return st.Code()
+		}, flags.EventuallyTimeout).Should(Equal(codes.NotFound))
+
+		By("Recreating the same group")
+		createGroup()
+		Eventually(func() bool {
+			_, statErr0 := os.Stat(dn0StreamDir)
+			_, statErr1 := os.Stat(dn1StreamDir)
+			_, statErrL := os.Stat(liaisonStreamDir)
+			return statErr0 == nil && statErr1 == nil && statErrL == nil
+		}, flags.EventuallyTimeout).Should(BeTrue())
+
+		By("Deleting the recreated group with force=true")
+		_, err = groupClient.Delete(context.TODO(), &databasev1.GroupRegistryServiceDeleteRequest{
+			Group: groupName,
+			Force: true,
+		})
+		Expect(err).ShouldNot(HaveOccurred())
+
+		By("Waiting for second deletion task to complete")
+		Eventually(func() databasev1.GroupDeletionTask_Phase {
+			queryResp, queryErr := groupClient.Query(context.TODO(), &databasev1.GroupRegistryServiceQueryRequest{
+				Group: groupName,
+			})
+			if queryErr != nil {
+				return databasev1.GroupDeletionTask_PHASE_UNSPECIFIED
+			}
+			return queryResp.GetTask().GetCurrentPhase()
+		}, flags.EventuallyTimeout, 100*time.Millisecond).Should(Equal(databasev1.GroupDeletionTask_PHASE_COMPLETED))
+
+		By("Verifying the recreated group is also removed")
+		Eventually(func() codes.Code {
+			_, getErr := groupClient.Get(context.TODO(), &databasev1.GroupRegistryServiceGetRequest{Group: groupName})
+			if getErr == nil {
+				return codes.OK
+			}
+			st, _ := status.FromError(getErr)
+			return st.Code()
+		}, flags.EventuallyTimeout).Should(Equal(codes.NotFound))
+
+		By("Verifying data directories are removed from all nodes")
+		Eventually(func() bool {
+			_, statErr0 := os.Stat(dn0StreamDir)
+			_, statErr1 := os.Stat(dn1StreamDir)
+			_, statErrL := os.Stat(liaisonStreamDir)
+			return os.IsNotExist(statErr0) && os.IsNotExist(statErr1) && os.IsNotExist(statErrL)
+		}, flags.EventuallyTimeout).Should(BeTrue())
 	})
 })

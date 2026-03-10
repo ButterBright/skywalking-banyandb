@@ -90,8 +90,9 @@ func (s *dataSVC) LoadGroup(name string) (resourceSchema.Group, bool) {
 	return s.schemaRepo.LoadGroup(name)
 }
 
-func (s *dataSVC) SubscribeGroupDrop(groupName string) <-chan struct{} {
-	return s.schemaRepo.SubscribeGroupDrop(groupName)
+// DropGroup drops the data files for the group on this node.
+func (s *dataSVC) DropGroup(_ context.Context, groupName string) error {
+	return s.schemaRepo.DropGroup(groupName)
 }
 
 func (s *dataSVC) GetRemovalSegmentsTimeRange(group string) *timestamp.TimeRange {
@@ -268,6 +269,9 @@ func (s *dataSVC) PreRun(ctx context.Context) error {
 	collectDataInfoListener := &collectDataInfoListener{s: s}
 	if subscribeErr := s.pipeline.Subscribe(data.TopicMeasureCollectDataInfo, collectDataInfoListener); subscribeErr != nil {
 		return fmt.Errorf("failed to subscribe to collect data info topic: %w", subscribeErr)
+	}
+	if dropGroupErr := s.pipeline.Subscribe(data.TopicMeasureDropGroup, &dropGroupListener{s: s}); dropGroupErr != nil {
+		return fmt.Errorf("failed to subscribe to drop group topic: %w", dropGroupErr)
 	}
 
 	if err := s.createDataNativeObservabilityGroup(ctx); err != nil {
@@ -568,4 +572,20 @@ func (l *collectDataInfoListener) Rev(ctx context.Context, message bus.Message) 
 		return bus.NewMessage(message.ID(), common.NewError("failed to collect data info: %v", collectErr))
 	}
 	return bus.NewMessage(message.ID(), dataInfo)
+}
+
+type dropGroupListener struct {
+	*bus.UnImplementedHealthyListener
+	s *dataSVC
+}
+
+func (l *dropGroupListener) Rev(ctx context.Context, message bus.Message) bus.Message {
+	req, ok := message.Data().(*databasev1.GroupRegistryServiceInspectRequest)
+	if !ok {
+		return bus.NewMessage(message.ID(), common.NewError("invalid data type for drop group request"))
+	}
+	if dropErr := l.s.schemaRepo.DropGroup(req.Group); dropErr != nil {
+		return bus.NewMessage(message.ID(), common.NewError("failed to drop group data: %v", dropErr))
+	}
+	return bus.NewMessage(message.ID(), req)
 }

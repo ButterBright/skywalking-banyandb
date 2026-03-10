@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	commonv1 "github.com/apache/skywalking-banyandb/api/proto/banyandb/common/v1"
 	databasev1 "github.com/apache/skywalking-banyandb/api/proto/banyandb/database/v1"
@@ -133,7 +134,10 @@ func TestHasNonEmptyResources(t *testing.T) {
 func TestDeletion(t *testing.T) {
 	t.Run("duplicate prevention", func(t *testing.T) {
 		m := &groupDeletionTaskManager{}
-		m.tasks.Store("existing-group", true)
+		m.tasks.Store("existing-group", &databasev1.GroupDeletionTask{
+			CurrentPhase: databasev1.GroupDeletionTask_PHASE_IN_PROGRESS,
+			UpdatedAt:    timestamppb.Now(),
+		})
 
 		err := m.startDeletion(context.Background(), "existing-group")
 		require.Error(t, err)
@@ -213,6 +217,11 @@ func TestDeletion(t *testing.T) {
 		mockRepo.EXPECT().TopNAggregationRegistry().Return(mockTopN)
 
 		mockGroup := schema.NewMockGroup(ctrl)
+		mockGroup.EXPECT().GetGroup(gomock.Any(), group).Return(&commonv1.Group{
+			Metadata: &commonv1.Metadata{Name: group},
+			Catalog:  commonv1.Catalog_CATALOG_STREAM,
+		}, nil)
+		mockRepo.EXPECT().DropGroup(gomock.Any(), commonv1.Catalog_CATALOG_STREAM, group).Return(nil)
 		mockGroup.EXPECT().DeleteGroup(gomock.Any(), group).DoAndReturn(
 			func(_ context.Context, g string) (bool, error) {
 				go func() {
@@ -229,7 +238,7 @@ func TestDeletion(t *testing.T) {
 				return true, nil
 			},
 		)
-		mockRepo.EXPECT().GroupRegistry().Return(mockGroup)
+		mockRepo.EXPECT().GroupRegistry().Return(mockGroup).Times(2)
 
 		m := &groupDeletionTaskManager{
 			schemaRegistry: mockRepo,
@@ -251,6 +260,131 @@ func TestDeletion(t *testing.T) {
 		require.NoError(t, queryErr)
 		assert.Equal(t, databasev1.GroupDeletionTask_PHASE_PENDING, pendingTask.GetCurrentPhase())
 		assert.Equal(t, int64(512), pendingTask.GetTotalDataSizeBytes())
+
+		gr.releaseRequest(group)
+		require.Eventually(t, func() bool {
+			statusTask, statusErr := m.getDeletionTask(context.Background(), group)
+			return statusErr == nil && statusTask.GetCurrentPhase() == databasev1.GroupDeletionTask_PHASE_COMPLETED
+		}, 5*time.Second, 20*time.Millisecond)
+
+		finalTask, finalErr := m.getDeletionTask(context.Background(), group)
+		require.NoError(t, finalErr)
+		assert.Equal(t, databasev1.GroupDeletionTask_PHASE_COMPLETED, finalTask.GetCurrentPhase())
+		assert.Equal(t, "group deleted successfully", finalTask.GetMessage())
+	})
+
+	t.Run("deletion after group recreation", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		const group = "test-group"
+		gr := &groupRepo{
+			log:          logger.GetLogger("test"),
+			resourceOpts: make(map[string]*commonv1.ResourceOpts),
+			inflight:     make(map[string]*groupInflight),
+		}
+		require.NoError(t, gr.acquireRequest(group))
+
+		var (
+			mu       sync.Mutex
+			lastTask = &databasev1.GroupDeletionTask{}
+		)
+		propApplier := &mockPropertyApplier{
+			applyFn: func(_ context.Context, req *propertyv1.ApplyRequest) (*propertyv1.ApplyResponse, error) {
+				for _, tag := range req.Property.Tags {
+					if tag.Key == taskDataTagName {
+						var task databasev1.GroupDeletionTask
+						if unmarshalErr := proto.Unmarshal(tag.Value.GetBinaryData(), &task); unmarshalErr == nil {
+							mu.Lock()
+							lastTask = proto.Clone(&task).(*databasev1.GroupDeletionTask)
+							mu.Unlock()
+						}
+					}
+				}
+				return &propertyv1.ApplyResponse{}, nil
+			},
+			queryFn: func(_ context.Context, _ *propertyv1.QueryRequest) (*propertyv1.QueryResponse, error) {
+				mu.Lock()
+				cloned := proto.Clone(lastTask).(*databasev1.GroupDeletionTask)
+				mu.Unlock()
+				taskData, _ := proto.Marshal(cloned)
+				return &propertyv1.QueryResponse{
+					Properties: []*propertyv1.Property{{
+						Id: group,
+						Tags: []*modelv1.Tag{{
+							Key:   taskDataTagName,
+							Value: &modelv1.TagValue{Value: &modelv1.TagValue_BinaryData{BinaryData: taskData}},
+						}},
+					}},
+				}, nil
+			},
+		}
+
+		mockRepo := metadata.NewMockRepo(ctrl)
+		mockRepo.EXPECT().CollectDataInfo(gomock.Any(), group).Return([]*databasev1.DataInfo{{DataSizeBytes: 256}}, nil)
+		mockRepo.EXPECT().IndexRuleBindingRegistry().Return(&stubIndexRuleBinding{})
+		mockRepo.EXPECT().IndexRuleRegistry().Return(&stubIndexRule{})
+
+		mockProperty := schema.NewMockProperty(ctrl)
+		mockProperty.EXPECT().ListProperty(gomock.Any(), schema.ListOpt{Group: group}).Return(nil, nil)
+		mockRepo.EXPECT().PropertyRegistry().Return(mockProperty)
+
+		mockStream := schema.NewMockStream(ctrl)
+		mockStream.EXPECT().ListStream(gomock.Any(), schema.ListOpt{Group: group}).Return(nil, nil)
+		mockRepo.EXPECT().StreamRegistry().Return(mockStream)
+
+		mockMeasure := schema.NewMockMeasure(ctrl)
+		mockMeasure.EXPECT().ListMeasure(gomock.Any(), schema.ListOpt{Group: group}).Return(nil, nil)
+		mockRepo.EXPECT().MeasureRegistry().Return(mockMeasure)
+
+		mockTrace := schema.NewMockTrace(ctrl)
+		mockTrace.EXPECT().ListTrace(gomock.Any(), schema.ListOpt{Group: group}).Return(nil, nil)
+		mockRepo.EXPECT().TraceRegistry().Return(mockTrace)
+
+		mockTopN := schema.NewMockTopNAggregation(ctrl)
+		mockTopN.EXPECT().ListTopNAggregation(gomock.Any(), schema.ListOpt{Group: group}).Return(nil, nil)
+		mockRepo.EXPECT().TopNAggregationRegistry().Return(mockTopN)
+
+		mockGroup := schema.NewMockGroup(ctrl)
+		// First GetGroup: called in startDeletion to confirm the recreated group exists.
+		// Second GetGroup: called in executeDeletion to get group metadata before dropping data.
+		mockGroup.EXPECT().GetGroup(gomock.Any(), group).Return(&commonv1.Group{
+			Metadata: &commonv1.Metadata{Name: group},
+			Catalog:  commonv1.Catalog_CATALOG_STREAM,
+		}, nil).Times(2)
+		mockRepo.EXPECT().DropGroup(gomock.Any(), commonv1.Catalog_CATALOG_STREAM, group).Return(nil)
+		mockGroup.EXPECT().DeleteGroup(gomock.Any(), group).DoAndReturn(
+			func(_ context.Context, g string) (bool, error) {
+				go func() {
+					time.Sleep(10 * time.Millisecond)
+					gr.OnDelete(schema.Metadata{
+						TypeMeta: schema.TypeMeta{Kind: schema.KindGroup},
+						Spec: &commonv1.Group{
+							Metadata:     &commonv1.Metadata{Name: g},
+							ResourceOpts: &commonv1.ResourceOpts{ShardNum: 1},
+							Catalog:      commonv1.Catalog_CATALOG_STREAM,
+						},
+					})
+				}()
+				return true, nil
+			},
+		)
+		mockRepo.EXPECT().GroupRegistry().Return(mockGroup).Times(3)
+
+		m := &groupDeletionTaskManager{
+			schemaRegistry: mockRepo,
+			propServer:     propApplier,
+			groupRepo:      gr,
+			log:            logger.GetLogger("test"),
+		}
+		// Simulate a previously completed deletion task stored in memory.
+		m.tasks.Store(group, &databasev1.GroupDeletionTask{
+			CurrentPhase: databasev1.GroupDeletionTask_PHASE_COMPLETED,
+			UpdatedAt:    timestamppb.Now(),
+		})
+
+		// startDeletion must succeed because the group was recreated.
+		require.NoError(t, m.startDeletion(context.Background(), group))
 
 		gr.releaseRequest(group)
 		require.Eventually(t, func() bool {
