@@ -22,12 +22,7 @@ groups: ["measure-default"]
 tagProjection:
   tagFamilies:
     - name: "default"
-      tags:
-        [
-          "last_update_time_bucket",
-          "represent_service_id",
-          "represent_service_instance_id",
-        ]
+      tags: ["last_update_time_bucket", "represent_service_id", "represent_service_instance_id"]
     - name: "storage_only"
       tags: ["address"]
 # The correct field name should be "limit", not "lmit".
