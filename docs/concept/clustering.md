@@ -93,7 +93,7 @@ The comparison between using a storage system and application-level replication 
 
 **Complexity**: With the storage system handling replication, the complexity is abstracted away from the user. The user need not concern themselves with the details of how replication is handled. Managing replication at the application level can be complex. It requires careful configuration, monitoring, and potentially significant engineering effort to maintain.
 
-Futhermore, the storage system might be cheaper. For instance, S3 can be more cost-effective because it eliminates the need for additional resources required for application-level replication. Application-level replication also requires ongoing maintenance, potentially increasing operational costs.
+Furthermore, the storage system might be cheaper. For instance, S3 can be more cost-effective because it eliminates the need for additional resources required for application-level replication. Application-level replication also requires ongoing maintenance, potentially increasing operational costs.
 
 ### 5.2 Data Sharding
 
