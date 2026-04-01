@@ -51,7 +51,7 @@ Please refer to the [Troubleshooting No Data Issue](./no-data.md) guide to ident
 
 ### Duplicate Data
 
-`Stream`, `Measure` and `Trace` handles duplicate data differently:
+`Stream`, `Measure` and `Trace` handle duplicate data differently:
 
 - `Stream`: If the same data is ingested multiple times, the `Stream` will store all the data points. The query results will include all the duplicate data points with the same entity and timestamp.
 - `Measure`: If the same data is ingested multiple times, the `Measure` will store the latest data point. It uses a internal `version` field to determine the latest data point.
