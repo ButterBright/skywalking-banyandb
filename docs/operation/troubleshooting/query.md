@@ -8,7 +8,7 @@ If you encounter issues with query results in BanyanDB, follow these troubleshoo
 
 The query's mandatory fields are `time_range`, `name` and `groups`. If any of these fields are missing, the query will fail. Ensure that the query includes all the required fields and that the syntax is correct.
 
-For `Stream` and `Trace`, the `tag_projection` field is mandatory. For `Measure`, either `tag_projection` or `field_projection` is required.
+For `Stream`, the `tag_projection` field is mandatory. For `Trace`, the `tag_projection` field is optional. For `Measure`, either `tag_projection` or `field_projection` is required.
 
 ### Ignore Unknown Fields
 
