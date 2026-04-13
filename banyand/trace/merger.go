@@ -30,6 +30,7 @@ import (
 	"github.com/apache/skywalking-banyandb/pkg/cgroups"
 	"github.com/apache/skywalking-banyandb/pkg/encoding"
 	"github.com/apache/skywalking-banyandb/pkg/fs"
+	pbv1 "github.com/apache/skywalking-banyandb/pkg/pb/v1"
 	"github.com/apache/skywalking-banyandb/pkg/watcher"
 )
 
@@ -324,6 +325,7 @@ func (tst *tsTable) mergeParts(fileSystem fs.FileSystem, closeCh <-chan struct{}
 	br.init(pii)
 	bw := generateBlockWriter()
 	bw.mustInitForFilePart(fileSystem, dstPath, shouldCache, int(traceSize))
+	bw.conflictTags = collectConflictTags(parts)
 
 	var minTimestamp, maxTimestamp int64
 	for i, pw := range parts {
@@ -365,6 +367,29 @@ var errClosed = fmt.Errorf("the merger is closed")
 
 // forceSlowMerge is used for testing to disable the fast raw merge path.
 var forceSlowMerge = false
+
+func collectConflictTags(parts []*partWrapper) map[string]struct{} {
+	tagTypes := make(map[string]map[pbv1.ValueType]struct{})
+	for _, pw := range parts {
+		for tag, vt := range pw.p.tagType {
+			t := decodeTypedTag(tag)
+			if tagTypes[t] == nil {
+				tagTypes[t] = make(map[pbv1.ValueType]struct{})
+			}
+			tagTypes[t][vt] = struct{}{}
+		}
+	}
+	var result map[string]struct{}
+	for tag, types := range tagTypes {
+		if len(types) > 1 {
+			if result == nil {
+				result = make(map[string]struct{})
+			}
+			result[tag] = struct{}{}
+		}
+	}
+	return result
+}
 
 func mergeBlocks(closeCh <-chan struct{}, bw *blockWriter, br *blockReader) (*partMetadata, *traceIDFilter, *tagType, error) {
 	pendingBlockIsEmpty := true

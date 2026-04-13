@@ -465,7 +465,8 @@ func (bc *blockCursor) copyAllTo(r *model.TraceResult) {
 	}
 	for i, t := range bc.tags {
 		values := make([]*modelv1.TagValue, len(bc.spans))
-		schemaType, hasSchemaType := bc.schemaTagTypes[t.name]
+		name := decodeTypedTag(t.name)
+		schemaType, hasSchemaType := bc.schemaTagTypes[name]
 		for k := range bc.spans {
 			if len(t.values) > k {
 				if hasSchemaType && t.valueType == schemaType {
@@ -486,13 +487,23 @@ func (bc *blockCursor) loadData(tmpBlock *block) bool {
 	bc.bm.tagProjection = bc.tagProjection
 	var t map[string]*dataBlock
 	for _, name := range bc.tagProjection.Names {
-		for tagName, block := range bc.bm.tags {
-			if tagName == name {
-				if t == nil {
-					t = make(map[string]*dataBlock, len(bc.tagProjection.Names))
-				}
-				t[name] = block
+		for typedTag, block := range bc.bm.tags {
+			if decodeTypedTag(typedTag) != name {
+				continue
 			}
+			if hasTypeSuffix(typedTag) {
+				schemaType, ok := bc.schemaTagTypes[name]
+				if !ok {
+					continue
+				}
+				if bmType, ok := bc.bm.tagType[typedTag]; !ok || bmType != schemaType {
+					continue
+				}
+			}
+			if t == nil {
+				t = make(map[string]*dataBlock, len(bc.tagProjection.Names))
+			}
+			t[typedTag] = block
 		}
 	}
 
