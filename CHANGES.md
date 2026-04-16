@@ -10,6 +10,7 @@ Release Notes.
 - Collect BanyanDB data on e2e test failure for CI debugging.
 - Add log query e2e test.
 - Sync lifecycle e2e test from SkyWalking stages test.
+- Add `noDuplicates` verification to all e2e expected files to detect duplicate data in query results.
 - Add periodic health check for property schema connection.
 - Persist segment end time in per-segment metadata so boundaries don't shift across restarts or config changes.
 - [Breaking Change] Remove etcd components. The property-based schema registry is now the only supported mode. 
@@ -33,6 +34,8 @@ Release Notes.
 - Fix handoff controller TOCTOU race allowing disk size limit bypass, and populate sidx MinTimestamp/MaxTimestamp during replay to prevent corrupt segment creation on recovered nodes.
 - Delete orphaned parts when no snapshot references them during tsTable initialization.
 - Extract shared LocateAll on NodeRegistry to ensure resolveAssignments and syncer GetNodes always produce identical node lists, preventing liaison from enqueuing parts to online/healthy data nodes.
+- Add validation for MATCH and IN conditions in inverted index query builder, and handle nil OR branch when all entities are specific.
+- Fix wrong backup path of schema property.
 
 ### Chores
 
