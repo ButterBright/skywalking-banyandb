@@ -486,7 +486,9 @@ func (bc *blockCursor) loadData(tmpBlock *block) bool {
 	tmpBlock.reset()
 	bc.bm.tagProjection = bc.tagProjection
 	var t map[string]*dataBlock
-	for _, name := range bc.tagProjection.Names {
+	projectionNames := make([]string, len(bc.tagProjection.Names))
+	copy(projectionNames, bc.tagProjection.Names)
+	for i, name := range bc.tagProjection.Names {
 		for typedTag, block := range bc.bm.tags {
 			if decodeTypedTag(typedTag) != name {
 				continue
@@ -499,6 +501,7 @@ func (bc *blockCursor) loadData(tmpBlock *block) bool {
 				if bmType, ok := bc.bm.tagType[typedTag]; !ok || bmType != schemaType {
 					continue
 				}
+				projectionNames[i] = typedTag
 			}
 			if t == nil {
 				t = make(map[string]*dataBlock, len(bc.tagProjection.Names))
@@ -508,6 +511,7 @@ func (bc *blockCursor) loadData(tmpBlock *block) bool {
 	}
 
 	bc.bm.tags = t
+	bc.bm.tagProjection = &model.TagProjection{Names: projectionNames}
 	tmpBlock.mustReadFrom(&bc.tagValuesDecoder, bc.p, bc.bm)
 	if len(tmpBlock.spans) == 0 {
 		return false
@@ -602,6 +606,8 @@ func fastTagAppend(bi, b *blockPointer, offset int) error {
 			return fmt.Errorf("unexpected tag name for tag %q: got %q; want %q",
 				bi.tags[i].name, b.tags[i].name, bi.tags[i].name)
 		}
+	}
+	for i := range bi.tags {
 		assertIdxAndOffset(b.tags[i].name, len(b.tags[i].values), b.idx, offset)
 		bi.tags[i].values = append(bi.tags[i].values, b.tags[i].values[b.idx:offset]...)
 	}

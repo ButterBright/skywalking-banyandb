@@ -58,15 +58,6 @@ func encodeTypedTag(name string, vt pbv1.ValueType) string {
 	return name + "." + suffix
 }
 
-func hasTypeSuffix(key string) bool {
-	for suffix := range suffixToValueType {
-		if strings.HasSuffix(key, "."+suffix) {
-			return true
-		}
-	}
-	return false
-}
-
 func decodeTypedTag(key string) string {
 	for suffix := range suffixToValueType {
 		dotSuffix := "." + suffix
@@ -75,6 +66,15 @@ func decodeTypedTag(key string) string {
 		}
 	}
 	return key
+}
+
+func hasTypeSuffix(key string) bool {
+	for suffix := range suffixToValueType {
+		if strings.HasSuffix(key, "."+suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 type tag struct {

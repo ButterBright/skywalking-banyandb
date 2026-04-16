@@ -325,7 +325,7 @@ func (tst *tsTable) mergeParts(fileSystem fs.FileSystem, closeCh <-chan struct{}
 	br.init(pii)
 	bw := generateBlockWriter()
 	bw.mustInitForFilePart(fileSystem, dstPath, shouldCache, int(traceSize))
-	bw.conflictTags = collectConflictTags(parts)
+	conflictTags := collectConflictTags(parts)
 
 	var minTimestamp, maxTimestamp int64
 	for i, pw := range parts {
@@ -343,7 +343,7 @@ func (tst *tsTable) mergeParts(fileSystem fs.FileSystem, closeCh <-chan struct{}
 		}
 	}
 
-	pm, tf, tt, err := mergeBlocks(closeCh, bw, br)
+	pm, tf, tt, err := mergeBlocks(closeCh, bw, br, conflictTags)
 	releaseBlockWriter(bw)
 	releaseBlockReader(br)
 	for i := range pii {
@@ -391,7 +391,7 @@ func collectConflictTags(parts []*partWrapper) map[string]struct{} {
 	return result
 }
 
-func mergeBlocks(closeCh <-chan struct{}, bw *blockWriter, br *blockReader) (*partMetadata, *traceIDFilter, *tagType, error) {
+func mergeBlocks(closeCh <-chan struct{}, bw *blockWriter, br *blockReader, conflictTags map[string]struct{}) (*partMetadata, *traceIDFilter, *tagType, error) {
 	pendingBlockIsEmpty := true
 	pendingBlock := generateBlockPointer()
 	defer releaseBlockPointer(pendingBlock)
@@ -410,6 +410,14 @@ func mergeBlocks(closeCh <-chan struct{}, bw *blockWriter, br *blockReader) (*pa
 			decoder = nil
 		}
 	}
+	loadAndRename := func() {
+		br.loadBlockData(getDecoder())
+		renameConflictTags(&br.block.block, conflictTags)
+	}
+	readAndRename := func(bm *blockMetadata) {
+		br.mustReadRaw(&rawBlk, bm)
+		renameRawConflictTags(&rawBlk, conflictTags)
+	}
 	for br.nextBlockMetadata() {
 		select {
 		case <-closeCh:
@@ -422,13 +430,13 @@ func mergeBlocks(closeCh <-chan struct{}, bw *blockWriter, br *blockReader) (*pa
 		nextB := br.peek()
 		if !forceSlowMerge && pendingBlockIsEmpty && (nextB == nil || nextB.bm.traceID != b.bm.traceID) {
 			// fast path: only a single block for the trace id and no pending data
-			br.mustReadRaw(&rawBlk, &b.bm)
+			readAndRename(&b.bm)
 			bw.mustWriteRawBlock(&rawBlk)
 			continue
 		}
 
 		if pendingBlockIsEmpty {
-			br.loadBlockData(getDecoder())
+			loadAndRename()
 			pendingBlock.copyFrom(b)
 			pendingBlockIsEmpty = false
 			continue
@@ -443,12 +451,12 @@ func mergeBlocks(closeCh <-chan struct{}, bw *blockWriter, br *blockReader) (*pa
 			nextB = br.peek()
 			if !forceSlowMerge && (nextB == nil || nextB.bm.traceID != b.bm.traceID) {
 				// fast path: only a single block for this new trace id
-				br.mustReadRaw(&rawBlk, &b.bm)
+				readAndRename(&b.bm)
 				bw.mustWriteRawBlock(&rawBlk)
 				continue
 			}
 			// Slow path: start accumulating the new block
-			br.loadBlockData(getDecoder())
+			loadAndRename()
 			pendingBlock.copyFrom(b)
 			pendingBlockIsEmpty = false
 			continue
@@ -460,7 +468,7 @@ func mergeBlocks(closeCh <-chan struct{}, bw *blockWriter, br *blockReader) (*pa
 		}
 		tmpBlock.reset()
 		tmpBlock.bm.traceID = b.bm.traceID
-		br.loadBlockData(getDecoder())
+		loadAndRename()
 		mergeTwoBlocks(tmpBlock, pendingBlock, b)
 		if tmpBlock.block.spanSize() <= maxUncompressedSpanSize {
 			if len(tmpBlock.spans) == 0 {
@@ -492,4 +500,41 @@ func mergeBlocks(closeCh <-chan struct{}, bw *blockWriter, br *blockReader) (*pa
 func mergeTwoBlocks(target, left, right *blockPointer) {
 	target.appendAll(left)
 	target.appendAll(right)
+}
+
+func renameConflictTags(b *block, conflictTags map[string]struct{}) {
+	if len(conflictTags) == 0 {
+		return
+	}
+	for i := range b.tags {
+		if _, ok := conflictTags[b.tags[i].name]; ok {
+			b.tags[i].name = encodeTypedTag(b.tags[i].name, b.tags[i].valueType)
+		}
+	}
+}
+
+func renameRawConflictTags(r *rawBlock, conflictTags map[string]struct{}) {
+	if len(conflictTags) == 0 {
+		return
+	}
+	bm := r.bm
+	for tag := range conflictTags {
+		if _, ok := bm.tags[tag]; !ok {
+			continue
+		}
+		valueType := bm.tagType[tag]
+		typedTag := encodeTypedTag(tag, valueType)
+		bm.tags[typedTag] = bm.tags[tag]
+		delete(bm.tags, tag)
+		bm.tagType[typedTag] = valueType
+		delete(bm.tagType, tag)
+		if rawData, ok := r.tags[tag]; ok {
+			r.tags[typedTag] = rawData
+			delete(r.tags, tag)
+		}
+		if rawMeta, ok := r.tagMetadata[tag]; ok {
+			r.tagMetadata[typedTag] = rawMeta
+			delete(r.tagMetadata, tag)
+		}
+	}
 }

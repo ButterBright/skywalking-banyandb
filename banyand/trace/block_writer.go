@@ -137,7 +137,6 @@ func (sw *writers) getWriters(tagName string) (*writer, *writer) {
 type blockWriter struct {
 	traceIDFilter                  *traceIDFilter
 	tagType                        tagType
-	conflictTags                   map[string]struct{}
 	writers                        writers
 	tidLast                        string
 	tidFirst                       string
@@ -166,7 +165,6 @@ func (bw *blockWriter) reset() {
 	} else {
 		bw.tagType.reset()
 	}
-	bw.conflictTags = nil
 	bw.minTimestampLast = 0
 	bw.minTimestamp = 0
 	bw.maxTimestamp = 0
@@ -246,13 +244,6 @@ func (bw *blockWriter) mustWriteBlock(tid string, b *block) {
 	isSeenTid := tid == bw.tidLast
 	bw.tidLast = tid
 
-	if bw.conflictTags != nil {
-		for _, t := range b.tags {
-			if _, ok := bw.conflictTags[t.name]; ok {
-				t.name = encodeTypedTag(t.name, t.valueType)
-			}
-		}
-	}
 	bm := generateBlockMetadata()
 	b.mustWriteTo(tid, bm, &bw.writers)
 	if bw.traceIDFilter != nil && bw.traceIDFilter.filter != nil {
@@ -317,27 +308,6 @@ func (bw *blockWriter) mustWriteRawBlock(r *rawBlock) {
 	bw.tidLast = bm.traceID
 	if bw.traceIDFilter != nil && bw.traceIDFilter.filter != nil {
 		bw.traceIDFilter.filter.Add(convert.StringToBytes(bm.traceID))
-	}
-	if bw.conflictTags != nil {
-		for tag := range bw.conflictTags {
-			if _, ok := bm.tags[tag]; !ok {
-				continue
-			}
-			valueType := bm.tagType[tag]
-			typedTag := encodeTypedTag(tag, valueType)
-			bm.tags[typedTag] = bm.tags[tag]
-			delete(bm.tags, tag)
-			bm.tagType[typedTag] = valueType
-			delete(bm.tagType, tag)
-			if rawData, ok := r.tags[tag]; ok {
-				r.tags[typedTag] = rawData
-				delete(r.tags, tag)
-			}
-			if rawMeta, ok := r.tagMetadata[tag]; ok {
-				r.tagMetadata[typedTag] = rawMeta
-				delete(r.tagMetadata, tag)
-			}
-		}
 	}
 	bw.tagType.copyFrom(bm.tagType)
 
