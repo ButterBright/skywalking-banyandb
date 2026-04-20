@@ -36,6 +36,7 @@ Release Notes.
 - Extract shared LocateAll on NodeRegistry to ensure resolveAssignments and syncer GetNodes always produce identical node lists, preventing liaison from enqueuing parts to online/healthy data nodes.
 - Add validation for MATCH and IN conditions in inverted index query builder, and handle nil OR branch when all entities are specific.
 - Fix wrong backup path of schema property.
+- Fix lifecycle migration failure when the target stage has `close: true`.
 
 ### Chores
 
@@ -90,6 +91,7 @@ Release Notes.
 - Fix duplicate query execution in distributed measure Agg+TopN queries by enabling push-down aggregation, removing the wasteful double-query pattern.
 - Fix nil pointer panic in segment collectMetrics during shutdown.
 - Fix entity tag handling in trace filter to prevent TagIdx index mismatch when filtering with both entity and non-entity tags.
+- Fix OOM issue cause during migration when a group contains a large amount of data.
 
 ### Document
 
