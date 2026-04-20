@@ -138,7 +138,7 @@ func (qr *queryResult) loadBlockData(tmpBlock *block, p *part, bm *blockMetadata
 			break
 		}
 	}
-	return true
+	return len(tmpBlock.userKeys) > 0
 }
 
 // loadTagData loads data for a specific tag, following the pattern from readBlockTags.
