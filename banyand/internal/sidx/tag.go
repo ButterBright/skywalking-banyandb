@@ -29,6 +29,8 @@ import (
 	"github.com/apache/skywalking-banyandb/pkg/pool"
 )
 
+const typedTagSeparator = "#"
+
 var (
 	valueTypeToSuffix = map[pbv1.ValueType]string{
 		pbv1.ValueTypeStr:        "str",
@@ -56,14 +58,14 @@ func encodeTypedTag(name string, vt pbv1.ValueType) string {
 	if !ok || suffix == "" {
 		return name
 	}
-	return name + "." + suffix
+	return name + typedTagSeparator + suffix
 }
 
 func decodeTypedTag(key string) string {
 	for suffix := range suffixToValueType {
-		dotSuffix := "." + suffix
-		if strings.HasSuffix(key, dotSuffix) {
-			return key[:len(key)-len(dotSuffix)]
+		sepSuffix := typedTagSeparator + suffix
+		if strings.HasSuffix(key, sepSuffix) {
+			return key[:len(key)-len(sepSuffix)]
 		}
 	}
 	return key
@@ -71,7 +73,7 @@ func decodeTypedTag(key string) string {
 
 func hasTypeSuffix(key string) bool {
 	for suffix := range suffixToValueType {
-		if strings.HasSuffix(key, "."+suffix) {
+		if strings.HasSuffix(key, typedTagSeparator+suffix) {
 			return true
 		}
 	}
@@ -80,7 +82,7 @@ func hasTypeSuffix(key string) bool {
 
 func valueType(name string) pbv1.ValueType {
 	for suffix, vt := range suffixToValueType {
-		if strings.HasSuffix(name, "."+suffix) {
+		if strings.HasSuffix(name, typedTagSeparator+suffix) {
 			return vt
 		}
 	}
