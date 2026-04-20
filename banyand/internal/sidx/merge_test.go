@@ -545,15 +545,15 @@ func Test_mergePartsWithConflictTags(t *testing.T) {
 			hasStr := false
 			hasInt := false
 			for tagName := range b.tags {
-				if tagName == "status.str" {
+				if tagName == "status#str" {
 					hasStr = true
 				}
-				if tagName == "status.int" {
+				if tagName == "status#int" {
 					hasInt = true
 				}
 			}
 			require.True(t, hasStr || hasInt,
-				"block %d (seriesID=%d) has neither 'status.str' nor 'status.int'",
+				"block %d (seriesID=%d) has neither 'status#str' nor 'status#int'",
 				blockCount, reader.block.bm.seriesID)
 		}
 		require.NoError(t, reader.error())

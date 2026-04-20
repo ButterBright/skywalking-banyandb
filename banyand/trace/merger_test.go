@@ -1493,8 +1493,8 @@ func Test_mergePartsWithConflictingTagTypes(t *testing.T) {
 				},
 			},
 			wantTagTypes: map[string]pbv1.ValueType{
-				"state.int": pbv1.ValueTypeInt64,
-				"state.str": pbv1.ValueTypeStr,
+				"state#int": pbv1.ValueTypeInt64,
+				"state#str": pbv1.ValueTypeStr,
 				"name":      pbv1.ValueTypeStr,
 			},
 			wantDeleted: []string{"state"},
@@ -1506,7 +1506,7 @@ func Test_mergePartsWithConflictingTagTypes(t *testing.T) {
 					traceIDs:   []string{"trace1"},
 					timestamps: []int64{1},
 					tags: [][]*tagValue{
-						{{tag: "state.int", valueType: pbv1.ValueTypeInt64, value: convert.Int64ToBytes(100)}},
+						{{tag: "state#int", valueType: pbv1.ValueTypeInt64, value: convert.Int64ToBytes(100)}},
 					},
 					spans:   [][]byte{[]byte("span1")},
 					spanIDs: []string{"span1"},
@@ -1522,8 +1522,8 @@ func Test_mergePartsWithConflictingTagTypes(t *testing.T) {
 				},
 			},
 			wantTagTypes: map[string]pbv1.ValueType{
-				"state.int": pbv1.ValueTypeInt64,
-				"state.str": pbv1.ValueTypeStr,
+				"state#int": pbv1.ValueTypeInt64,
+				"state#str": pbv1.ValueTypeStr,
 			},
 			wantDeleted: []string{"state"},
 		},

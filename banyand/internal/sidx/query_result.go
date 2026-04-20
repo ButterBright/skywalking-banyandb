@@ -118,16 +118,24 @@ func (qr *queryResult) loadBlockData(tmpBlock *block, p *part, bm *blockMetadata
 			qr.loadTagData(tmpBlock, p, tagName, &tagBlockInfo, int(bm.count), decoder)
 			continue
 		}
+		schemaType, hasSchemaType := qr.request.SchemaTagTypes[tagName]
+		if !hasSchemaType {
+			continue
+		}
 		for typedTag, typedBlock := range bm.tagsBlocks {
-			if decodeTypedTag(typedTag) == tagName {
-				if qr.loadTagData(tmpBlock, p, typedTag, &typedBlock, int(bm.count), decoder) {
-					td := tmpBlock.tags[typedTag]
-					td.name = tagName
-					tmpBlock.tags[tagName] = td
-					delete(tmpBlock.tags, typedTag)
-				}
-				break
+			if decodeTypedTag(typedTag) != tagName {
+				continue
 			}
+			if valueType(typedTag) != schemaType {
+				continue
+			}
+			if qr.loadTagData(tmpBlock, p, typedTag, &typedBlock, int(bm.count), decoder) {
+				td := tmpBlock.tags[typedTag]
+				td.name = tagName
+				tmpBlock.tags[tagName] = td
+				delete(tmpBlock.tags, typedTag)
+			}
+			break
 		}
 	}
 	return true
